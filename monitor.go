@@ -33,6 +33,7 @@ func MonitorAllDevices() (map[string]chan inputEvent, context.CancelFunc, error)
 	// Get all input devices
 	devices, err := InputDevices()
 	if err != nil {
+		cancel()
 		return nil, nil, err
 	}
 
