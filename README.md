@@ -94,7 +94,7 @@ import (
 )
 
 func main() {
-    dataChanMap, cancel, err := evdev.MonitorDevices()
+    dataChanMap, cancel, err := evdev.MonitorDevices(nil) // pass nil to monitor all devices
     if err != nil {
         fmt.Println("Error:", err)
         return
