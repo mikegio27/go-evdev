@@ -26,17 +26,18 @@ func MonitorSingleDevice(devicePath string) (chan InputEvent, context.CancelFunc
 	return dataChan, cancel, nil
 }
 
-func MonitorAllDevices() (map[string]chan InputEvent, context.CancelFunc, error) {
+func MonitorDevices(devices []InputDevice) (map[string]chan InputEvent, context.CancelFunc, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
-
-	// Get all input devices
-	devices, err := InputDevices()
-	if err != nil {
-		cancel()
-		return nil, nil, err
+	if devices == nil {
+		// Get all input devices
+		var err error
+		devices, err = InputDevices()
+		if err != nil {
+			cancel()
+			return nil, nil, err
+		}
 	}
-
 	dataChanMap := make(map[string]chan InputEvent)
 
 	for _, device := range devices {
