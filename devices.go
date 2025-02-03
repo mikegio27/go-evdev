@@ -35,6 +35,7 @@ type InputDevice struct {
 	Props    map[string]string
 }
 
+// ioctl is a wrapper around the ioctl syscall.
 func ioctl(fd uintptr, request, arg uintptr) error {
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, request, arg)
 	if errno != 0 {
@@ -58,6 +59,7 @@ func (d InputDevice) InputPath() string {
 	return "/dev/input/" + d.EventId()
 }
 
+// IsKeyboard checks if the device is a keyboard by checking if it has keys A and Enter.
 func (d InputDevice) IsKeyboard() bool {
 	file, err := os.Open(d.InputPath())
 	if err != nil {
