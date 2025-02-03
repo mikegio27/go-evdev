@@ -42,6 +42,11 @@ func main() {
 ### Monitoring Keyboard Devices
 
 ```go
+import (
+    "fmt"
+    "github.com/mikegio27/go-evdev"
+)
+
 func main() {
     devices, err := evdev.InputDevices()
     if err != nil {
