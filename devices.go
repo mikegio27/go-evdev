@@ -35,46 +35,6 @@ type InputDevice struct {
 	Props    map[string]string
 }
 
-func (d InputDevice) bus() string {
-	return d.Bus
-}
-
-func (d InputDevice) vendor() string {
-	return d.Vendor
-}
-
-func (d InputDevice) product() string {
-	return d.Product
-}
-
-func (d InputDevice) version() string {
-	return d.Version
-}
-
-func (d InputDevice) name() string {
-	return d.Name
-}
-
-func (d InputDevice) phys() string {
-	return d.Phys
-}
-
-func (d InputDevice) sysfs() string {
-	return d.Sysfs
-}
-
-func (d InputDevice) uniq() string {
-	return d.Uniq
-}
-
-func (d InputDevice) handlers() string {
-	return d.Handlers
-}
-
-func (d InputDevice) props() map[string]string {
-	return d.Props
-}
-
 func ioctl(fd uintptr, request, arg uintptr) error {
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, request, arg)
 	if errno != 0 {
@@ -84,7 +44,7 @@ func ioctl(fd uintptr, request, arg uintptr) error {
 }
 
 // returns the event ID of the device parsed from Handlers
-func (d InputDevice) eventId() string {
+func (d InputDevice) EventId() string {
 	parts := strings.Fields(d.Handlers)
 	for _, part := range parts {
 		if strings.HasPrefix(part, "event") {
@@ -94,14 +54,14 @@ func (d InputDevice) eventId() string {
 	return ""
 }
 
-func (d InputDevice) path() string {
-	return "/dev/input/" + d.eventId()
+func (d InputDevice) InputPath() string {
+	return "/dev/input/" + d.EventId()
 }
 
-func (d InputDevice) isKeyboard() bool {
-	file, err := os.Open(d.path())
+func (d InputDevice) IsKeyboard() bool {
+	file, err := os.Open(d.InputPath())
 	if err != nil {
-		logger.Printf("Failed to open device %s: %v", d.path(), err)
+		logger.Printf("Failed to open device %s: %v", d.InputPath(), err)
 		return false
 	}
 	defer file.Close()
@@ -120,7 +80,7 @@ func (d InputDevice) isKeyboard() bool {
 // This function is used to detect input devices on the system.
 // It reads from /proc/bus/input/devices and returns a list of device paths.
 // The function returns an error if the file cannot be read or no suitable devices are found.
-func detectInputDevices() ([]InputDevice, error) {
+func InputDevices() ([]InputDevice, error) {
 	file, err := os.Open("/proc/bus/input/devices")
 	if err != nil {
 		logger.Printf("Failed to open /proc/bus/input/devices: %v", err)
