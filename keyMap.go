@@ -10,7 +10,7 @@ import (
 // generateKeyMap reads the linux input-event-codes.h file and generates a map of key codes to key names.
 // Requires the linux headers to be installed.
 // Returns a map of key codes to key names.
-func generateKeyMap() map[uint16]string {
+func GenerateKeyMap() map[uint16]string {
 	keyMap := make(map[uint16]string)
 	file, err := os.Open("/usr/include/linux/input-event-codes.h")
 	if err != nil {
