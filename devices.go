@@ -15,7 +15,7 @@ const (
 	KEY_ENTER = 0x1c
 )
 
-type inputEvent struct {
+type InputEvent struct {
 	Time  syscall.Timeval
 	Type  uint16
 	Code  uint16

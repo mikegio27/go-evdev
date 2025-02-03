@@ -10,12 +10,12 @@ import (
 
 // MonitorSingleDevice sets up the context and wait group, starts the watchDevice function in a goroutine,
 // and returns the data channel to the user. Used for a single device.
-func MonitorSingleDevice(devicePath string) (chan inputEvent, context.CancelFunc, error) {
+func MonitorSingleDevice(devicePath string) (chan InputEvent, context.CancelFunc, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	dataChan := make(chan inputEvent, 100)
+	dataChan := make(chan InputEvent, 100)
 
 	go func() {
 		defer wg.Done()
@@ -26,7 +26,7 @@ func MonitorSingleDevice(devicePath string) (chan inputEvent, context.CancelFunc
 	return dataChan, cancel, nil
 }
 
-func MonitorAllDevices() (map[string]chan inputEvent, context.CancelFunc, error) {
+func MonitorAllDevices() (map[string]chan InputEvent, context.CancelFunc, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 
@@ -37,11 +37,11 @@ func MonitorAllDevices() (map[string]chan inputEvent, context.CancelFunc, error)
 		return nil, nil, err
 	}
 
-	dataChanMap := make(map[string]chan inputEvent)
+	dataChanMap := make(map[string]chan InputEvent)
 
 	for _, device := range devices {
 		wg.Add(1)
-		dataChan := make(chan inputEvent, 100)
+		dataChan := make(chan InputEvent, 100)
 		dataChanMap[device.InputPath()] = dataChan
 
 		go func(devicePath string) {
@@ -56,7 +56,7 @@ func MonitorAllDevices() (map[string]chan inputEvent, context.CancelFunc, error)
 
 // watchDevice monitors the device for key presses and releases, reads from the device file,
 // and sends key events to a channel.
-func monitorDevice(ctx context.Context, devicePath string, dataChan chan inputEvent, wg *sync.WaitGroup) {
+func monitorDevice(ctx context.Context, devicePath string, dataChan chan InputEvent, wg *sync.WaitGroup) {
 	defer wg.Done()
 	logger.Println("Monitoring device at", devicePath)
 
@@ -76,7 +76,7 @@ func monitorDevice(ctx context.Context, devicePath string, dataChan chan inputEv
 			close(dataChan)
 			return
 		default:
-			var event inputEvent
+			var event InputEvent
 			err := binary.Read(reader, binary.LittleEndian, &event)
 			if err != nil {
 				logger.Printf("Error reading from device %s: %v", devicePath, err)
