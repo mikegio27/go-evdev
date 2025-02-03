@@ -2,17 +2,18 @@ package evdev
 
 import (
 	"bufio"
-	"context"
-	"encoding/binary"
-	"errors"
-	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"syscall"
+	"unsafe"
 )
 
-const EV_KEY = 0x01
+const (
+	EVIOCGBIT = 0x20
+	EV_KEY    = 0x01
+	KEY_A     = 0x1e
+	KEY_ENTER = 0x1c
+)
 
 type inputEvent struct {
 	Time  syscall.Timeval
@@ -21,89 +22,165 @@ type inputEvent struct {
 	Value int32
 }
 
+type InputDevice struct {
+	Bus      string
+	Vendor   string
+	Product  string
+	Version  string
+	Name     string
+	Phys     string
+	Sysfs    string
+	Uniq     string
+	Handlers string
+	Props    map[string]string
+}
+
+func (d InputDevice) bus() string {
+	return d.Bus
+}
+
+func (d InputDevice) vendor() string {
+	return d.Vendor
+}
+
+func (d InputDevice) product() string {
+	return d.Product
+}
+
+func (d InputDevice) version() string {
+	return d.Version
+}
+
+func (d InputDevice) name() string {
+	return d.Name
+}
+
+func (d InputDevice) phys() string {
+	return d.Phys
+}
+
+func (d InputDevice) sysfs() string {
+	return d.Sysfs
+}
+
+func (d InputDevice) uniq() string {
+	return d.Uniq
+}
+
+func (d InputDevice) handlers() string {
+	return d.Handlers
+}
+
+func (d InputDevice) props() map[string]string {
+	return d.Props
+}
+
+func ioctl(fd uintptr, request, arg uintptr) error {
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, request, arg)
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+// returns the event ID of the device parsed from Handlers
+func (d InputDevice) eventId() string {
+	parts := strings.Fields(d.Handlers)
+	for _, part := range parts {
+		if strings.HasPrefix(part, "event") {
+			return part
+		}
+	}
+	return ""
+}
+
+func (d InputDevice) path() string {
+	return "/dev/input/" + d.eventId()
+}
+
+func (d InputDevice) isKeyboard() bool {
+	file, err := os.Open(d.path())
+	if err != nil {
+		logger.Printf("Failed to open device %s: %v", d.path(), err)
+		return false
+	}
+	defer file.Close()
+
+	var keyBits [256]byte
+	request := uintptr((2 << 30) | (EVIOCGBIT << 8) | EV_KEY)
+	err = ioctl(file.Fd(), request, uintptr(unsafe.Pointer(&keyBits)))
+	if err != nil {
+		logger.Printf("Failed to get device capabilities: %v", err)
+		return false
+	}
+
+	return keyBits[KEY_A/8]&(1<<(KEY_A%8)) != 0 && keyBits[KEY_ENTER/8]&(1<<(KEY_ENTER%8)) != 0
+}
+
 // This function is used to detect input devices on the system.
 // It reads from /proc/bus/input/devices and returns a list of device paths.
 // The function returns an error if the file cannot be read or no suitable devices are found.
-func detectInputDevices() ([]string, error) {
+func detectInputDevices() ([]InputDevice, error) {
 	file, err := os.Open("/proc/bus/input/devices")
 	if err != nil {
+		logger.Printf("Failed to open /proc/bus/input/devices: %v", err)
 		return nil, err
 	}
 	defer file.Close()
-	var devicePaths []string
+
+	var devices []InputDevice
+	var device InputDevice
+	device.Props = make(map[string]string)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "H: Handlers=") {
-			parts := strings.Fields(line)
-			for _, part := range parts {
-				if strings.HasPrefix(part, "event") {
-					devicePaths = append(devicePaths, "/dev/input/"+part)
-				}
+		if line == "" {
+			devices = append(devices, device)
+			device = InputDevice{}
+			device.Props = make(map[string]string)
+			continue
+		}
+		switch line[0] {
+		case 'I':
+			parsedDeviceInfo(line, &device)
+		case 'N':
+			device.Name = strings.TrimPrefix(line, "N: Name=")
+		case 'P':
+			device.Phys = strings.TrimPrefix(line, "P: Phys=")
+		case 'S':
+			device.Sysfs = strings.TrimPrefix(line, "S: Sysfs=")
+		case 'U':
+			device.Uniq = strings.TrimPrefix(line, "U: Uniq=")
+		case 'H':
+			device.Handlers = strings.TrimPrefix(line, "H: Handlers=")
+		case 'B':
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				device.Props[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error scanning input devices: %w", err)
+		logger.Printf("Error reading /proc/bus/input/devices: %v", err)
+		return nil, err
 	}
 
-	if len(devicePaths) == 0 {
-		return nil, errors.New("no suitable devices found")
-	}
-
-	return devicePaths, nil
+	return devices, nil
 }
 
-// StartDeviceMonitoring sets up the context and wait group, starts the watchDevice function in a goroutine,
-// and returns the data channel to the user.
-func StartDeviceMonitoring(devicePath string) (chan inputEvent, context.CancelFunc, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	dataChan := make(chan inputEvent, 100)
-
-	go func() {
-		defer wg.Done()
-		watchDevice(ctx, devicePath, dataChan, &wg)
-	}()
-
-	// Return the data channel and the cancel function to the user
-	return dataChan, cancel, nil
-}
-
-// watchDevice monitors the device for key presses and releases, reads from the device file,
-// and sends key events to a channel.
-func watchDevice(ctx context.Context, devicePath string, dataChan chan inputEvent, wg *sync.WaitGroup) {
-	defer wg.Done()
-	logger.Println("Monitoring device at", devicePath)
-
-	f, err := os.Open(devicePath)
-	if err != nil {
-		logger.Printf("Failed to open device %s: %v", devicePath, err)
-		close(dataChan)
-		return
-	}
-	defer f.Close()
-
-	reader := bufio.NewReader(f)
-
-	for {
-		select {
-		case <-ctx.Done():
-			close(dataChan)
-			return
-		default:
-			var event inputEvent
-			err := binary.Read(reader, binary.LittleEndian, &event)
-			if err != nil {
-				logger.Printf("Error reading from device %s: %v", devicePath, err)
-				close(dataChan)
-				return
-			}
-			dataChan <- event
+func parsedDeviceInfo(line string, device *InputDevice) {
+	parts := strings.Fields(line)
+	for _, part := range parts {
+		if strings.HasPrefix(part, "Bus=") {
+			device.Bus = strings.TrimPrefix(part, "Bus=")
+		} else if strings.HasPrefix(part, "Vendor=") {
+			device.Vendor = strings.TrimPrefix(part, "Vendor=")
+		} else if strings.HasPrefix(part, "Product=") {
+			device.Product = strings.TrimPrefix(part, "Product=")
+		} else if strings.HasPrefix(part, "Version=") {
+			device.Version = strings.TrimPrefix(part, "Version=")
 		}
 	}
 }
