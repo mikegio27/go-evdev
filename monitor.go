@@ -26,6 +26,8 @@ func MonitorSingleDevice(devicePath string) (chan InputEvent, context.CancelFunc
 	return dataChan, cancel, nil
 }
 
+// MonitorDevices sets up the context and wait group, starts the watchDevice function in a goroutine for each device,
+// and returns a map of data channels to the user. Used for multiple devices.
 func MonitorDevices(devices []InputDevice) (map[string]chan InputEvent, context.CancelFunc, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup

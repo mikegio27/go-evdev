@@ -55,6 +55,7 @@ func (d InputDevice) EventId() string {
 	return ""
 }
 
+// returns the input path of the device (/dev/input/eventX)
 func (d InputDevice) InputPath() string {
 	return "/dev/input/" + d.EventId()
 }
@@ -132,6 +133,7 @@ func InputDevices() ([]InputDevice, error) {
 	return devices, nil
 }
 
+// parsedDeviceInfo parses the device information from the line and stores it in the device struct.
 func parsedDeviceInfo(line string, device *InputDevice) {
 	parts := strings.Fields(line)
 	for _, part := range parts {
