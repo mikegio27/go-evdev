@@ -1,7 +1,8 @@
 # go-evdev
 
 `go-evdev` is a Go library for monitoring input devices on a Linux system. It provides functionality to monitor single or multiple input devices, read key events, and generate key maps from Linux header files.
-
+  
+**NOTE** You need to run these functions with additional priveleges to be able to access `/dev/input`
 ## Installation
 
 To install the library, use `go get`:
