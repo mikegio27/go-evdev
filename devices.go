@@ -66,14 +66,15 @@ func (d InputDevice) IsKeyboard() bool {
 	}
 	defer file.Close()
 
-	// Step 1: Check if the device supports EV_KEY
-	var evBitmask [((EV_KEY + 7) / 8)]byte
+	// Step 1: Check if the device supports EV_KEY (use a larger bitmask)
+	var evBitmask [32]byte // Supports up to 256 event types
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), EVIOCGBIT, uintptr(unsafe.Pointer(&evBitmask)))
 	if errno != 0 {
-		logger.Printf("ioctl error while checking EV_KEY: %v", errno)
+		logger.Printf("ioctl error while checking EV_BIT: %v", errno)
 		return false
 	}
 
+	// Check if EV_KEY is supported
 	if evBitmask[EV_KEY/8]&(1<<(EV_KEY%8)) == 0 {
 		return false // Device does not support key events
 	}
