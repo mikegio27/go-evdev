@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	EVIOCGBIT = 0x20
-	EV_KEY    = 0x01
-	KEY_A     = 0x1e
-	KEY_ENTER = 0x1c
+	EVIOCGBIT     = 0x20
+	EV_KEY        = 0x01
+	KEY_A         = 0x1e
+	KEY_ENTER     = 0x1c
+	EVIOCGBIT_KEY = (2 << 30) | (0x45 << 8) | 0x20 | (0x01 << 16)
 )
 
 type InputEvent struct {
@@ -71,7 +72,7 @@ func (d InputDevice) IsKeyboard() bool {
 	defer file.Close()
 
 	var keyBits [256]byte
-	request := uintptr((2 << 30) | (EVIOCGBIT << 8) | EV_KEY)
+	request := uintptr(EVIOCGBIT_KEY)
 	fmt.Printf("File descriptor: %d\n", file.Fd())
 	fmt.Printf("Request: %d\n", request)
 	fmt.Printf("KeyBits: %v\n", keyBits)
