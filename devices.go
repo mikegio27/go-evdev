@@ -2,7 +2,6 @@ package evdev
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"strings"
 	"syscall"
@@ -36,15 +35,6 @@ type InputDevice struct {
 	Props    map[string]string
 }
 
-// ioctl is a wrapper around the ioctl syscall.
-func ioctl(fd, request, arg uintptr) error {
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, request, arg)
-	if errno != 0 {
-		return errno
-	}
-	return nil
-}
-
 // returns the event ID of the device parsed from Handlers
 func (d InputDevice) EventId() string {
 	parts := strings.Fields(d.Handlers)
@@ -62,10 +52,12 @@ func (d InputDevice) InputPath() string {
 }
 
 // IsKeyboard checks if the device is a keyboard by checking if it has keys A and Enter.
-func (d InputDevice) IsKeyboard() (bool, error) {
+func (d InputDevice) IsKeyboard() bool {
+	logger.Printf("Opening device %s", d.InputPath())
 	file, err := os.Open(d.InputPath())
+
 	if err != nil {
-		return false, fmt.Errorf("failed to open device: %v", err)
+		logger.Printf("failed to open device: %v", err)
 	}
 	defer file.Close()
 
@@ -74,15 +66,15 @@ func (d InputDevice) IsKeyboard() (bool, error) {
 
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), EVIOCGBITKEY, uintptr(unsafe.Pointer(&keyBitmask)))
 	if errno != 0 {
-		return false, fmt.Errorf("ioctl error: %v", errno)
+		logger.Printf("ioctl error: %v", errno)
 	}
 
 	// Check if common keyboard keys exist (KEY_A, KEY_B, etc.)
 	if keyBitmask[30/8]&(1<<(30%8)) != 0 { // KEY_A = 30
-		return true, nil
+		return true
 	}
 
-	return false, nil
+	return false
 }
 
 // This function is used to detect input devices on the system.
