@@ -37,7 +37,7 @@ type InputDevice struct {
 }
 
 // ioctl is a wrapper around the ioctl syscall.
-func ioctl(fd uintptr, request, arg uintptr) error {
+func ioctl(fd, request, arg uintptr) error {
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, request, arg)
 	if errno != 0 {
 		return errno
@@ -81,7 +81,10 @@ func (d InputDevice) IsKeyboard() bool {
 		return false
 	}
 
-	return keyBits[KEY_A/8]&(1<<(KEY_A%8)) != 0 && keyBits[KEY_ENTER/8]&(1<<(KEY_ENTER%8)) != 0
+	if keyBits[30/8]&(1<<(30%8)) != 0 && keyBits[28/8]&(1<<(28%8)) != 0 {
+		return true
+	}
+	return false
 }
 
 // This function is used to detect input devices on the system.
