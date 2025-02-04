@@ -121,7 +121,7 @@ func main() {
 ```
 
 ### Generating a Key Map
-
+**NOTE** You need to have linux kernel headers installed to generate the keymap `sudo apt-get install linux-headers-$(uname -r)`  
 To generate a key map from the Linux `input-event-codes.h` file, use the `GenerateKeyMap` function:
 
 ```go
