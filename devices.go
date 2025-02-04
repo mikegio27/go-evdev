@@ -2,11 +2,9 @@ package evdev
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"strings"
 	"syscall"
-	"unsafe"
 )
 
 const (
@@ -57,44 +55,7 @@ func (d InputDevice) InputPath() string {
 
 // IsKeyboard checks if the device is a keyboard by checking if it has keys A and Enter.
 func (d InputDevice) IsKeyboard() bool {
-	fmt.Printf("Opening device %s\n", d.InputPath())
-
-	file, err := os.Open(d.InputPath())
-	if err != nil {
-		logger.Printf("Failed to open device: %v", err)
-		return false
-	}
-	defer file.Close()
-
-	// Step 1: Check if the device supports EV_KEY (use a larger bitmask)
-	var evBitmask [32]byte // Supports up to 256 event types
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), EVIOCGBIT, uintptr(unsafe.Pointer(&evBitmask)))
-	if errno != 0 {
-		logger.Printf("ioctl error while checking EV_BIT: %v", errno)
-		return false
-	}
-
-	// Check if EV_KEY is supported
-	if evBitmask[EV_KEY/8]&(1<<(EV_KEY%8)) == 0 {
-		return false // Device does not support key events
-	}
-
-	// Step 2: Check if the device has specific keyboard keys
-	var keyBitmask [((KEY_MAX + 7) / 8)]byte
-	_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), EVIOCGBITKEY, uintptr(unsafe.Pointer(&keyBitmask)))
-	if errno != 0 {
-		logger.Printf("ioctl error while checking key bitmask: %v", errno)
-		return false
-	}
-
-	// Check for common keyboard keys
-	if keyBitmask[KEY_A/8]&(1<<(KEY_A%8)) != 0 ||
-		keyBitmask[KEY_ENTER/8]&(1<<(KEY_ENTER%8)) != 0 ||
-		keyBitmask[KEY_ESC/8]&(1<<(KEY_ESC%8)) != 0 {
-		return true
-	}
-
-	return false
+	return strings.Contains(d.Handlers, "kbd")
 }
 
 // This function is used to detect input devices on the system.
