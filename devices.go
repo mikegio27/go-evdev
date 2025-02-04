@@ -2,6 +2,7 @@ package evdev
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"strings"
 	"syscall"
@@ -71,6 +72,9 @@ func (d InputDevice) IsKeyboard() bool {
 
 	var keyBits [256]byte
 	request := uintptr((2 << 30) | (EVIOCGBIT << 8) | EV_KEY)
+	fmt.Printf("File descriptor: %d\n", file.Fd())
+	fmt.Printf("Request: %d\n", request)
+	fmt.Printf("KeyBits: %v\n", keyBits)
 	err = ioctl(file.Fd(), request, uintptr(unsafe.Pointer(&keyBits)))
 	if err != nil {
 		logger.Printf("Failed to get device capabilities: %v", err)
