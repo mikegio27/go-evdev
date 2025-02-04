@@ -2,6 +2,7 @@ package evdev
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"strings"
 	"syscall"
@@ -9,10 +10,13 @@ import (
 )
 
 const (
-	EVIOCGNAME   = 0x82004506 // Get device name
+	EVIOCGBIT    = 0x80084500 // Get event bitmask
 	EVIOCGBITKEY = 0x80084502 // Get key bitmask
 	EV_KEY       = 0x01       // Event type for keys
-	KEY_MAX      = 0x2ff      // Maximum key code
+	KEY_A        = 30         // Key code for "A"
+	KEY_ENTER    = 28         // Key code for "Enter"
+	KEY_ESC      = 1          // Escape key
+	KEY_MAX      = 0x2FF      // Maximum key code
 )
 
 type InputEvent struct {
@@ -53,24 +57,39 @@ func (d InputDevice) InputPath() string {
 
 // IsKeyboard checks if the device is a keyboard by checking if it has keys A and Enter.
 func (d InputDevice) IsKeyboard() bool {
-	logger.Printf("Opening device %s", d.InputPath())
-	file, err := os.Open(d.InputPath())
+	fmt.Printf("Opening device %s\n", d.InputPath())
 
+	file, err := os.Open(d.InputPath())
 	if err != nil {
-		logger.Printf("failed to open device: %v", err)
+		logger.Printf("Failed to open device: %v", err)
+		return false
 	}
 	defer file.Close()
 
-	// Check if the device has keys
-	var keyBitmask [((KEY_MAX + 7) / 8)]byte
-
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), EVIOCGBITKEY, uintptr(unsafe.Pointer(&keyBitmask)))
+	// Step 1: Check if the device supports EV_KEY
+	var evBitmask [((EV_KEY + 7) / 8)]byte
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), EVIOCGBIT, uintptr(unsafe.Pointer(&evBitmask)))
 	if errno != 0 {
-		logger.Printf("ioctl error: %v", errno)
+		logger.Printf("ioctl error while checking EV_KEY: %v", errno)
+		return false
 	}
 
-	// Check if common keyboard keys exist (KEY_A, KEY_B, etc.)
-	if keyBitmask[30/8]&(1<<(30%8)) != 0 { // KEY_A = 30
+	if evBitmask[EV_KEY/8]&(1<<(EV_KEY%8)) == 0 {
+		return false // Device does not support key events
+	}
+
+	// Step 2: Check if the device has specific keyboard keys
+	var keyBitmask [((KEY_MAX + 7) / 8)]byte
+	_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), EVIOCGBITKEY, uintptr(unsafe.Pointer(&keyBitmask)))
+	if errno != 0 {
+		logger.Printf("ioctl error while checking key bitmask: %v", errno)
+		return false
+	}
+
+	// Check for common keyboard keys
+	if keyBitmask[KEY_A/8]&(1<<(KEY_A%8)) != 0 ||
+		keyBitmask[KEY_ENTER/8]&(1<<(KEY_ENTER%8)) != 0 ||
+		keyBitmask[KEY_ESC/8]&(1<<(KEY_ESC%8)) != 0 {
 		return true
 	}
 
