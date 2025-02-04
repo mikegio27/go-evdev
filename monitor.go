@@ -6,7 +6,15 @@ import (
 	"encoding/binary"
 	"os"
 	"sync"
+	"syscall"
 )
+
+type InputEvent struct {
+	Time  syscall.Timeval
+	Type  uint16
+	Code  uint16
+	Value int32
+}
 
 // MonitorSingleDevice sets up the context and wait group, starts the watchDevice function in a goroutine,
 // and returns the data channel to the user. Used for a single device.

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"os"
 	"strings"
-	"syscall"
 )
 
 const (
@@ -16,13 +15,6 @@ const (
 	KEY_ESC      = 1          // Escape key
 	KEY_MAX      = 0x2FF      // Maximum key code
 )
-
-type InputEvent struct {
-	Time  syscall.Timeval
-	Type  uint16
-	Code  uint16
-	Value int32
-}
 
 type InputDevice struct {
 	Bus      string
