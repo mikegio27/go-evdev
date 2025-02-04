@@ -10,11 +10,10 @@ import (
 )
 
 const (
-	EVIOCGBIT     = 0x20
-	EV_KEY        = 0x01
-	KEY_A         = 0x1e
-	KEY_ENTER     = 0x1c
-	EVIOCGBIT_KEY = (2 << 30) | (0x45 << 8) | 0x20 | (0x01 << 16)
+	EVIOCGNAME   = 0x82004506 // Get device name
+	EVIOCGBITKEY = 0x80084502 // Get key bitmask
+	EV_KEY       = 0x01       // Event type for keys
+	KEY_MAX      = 0x2ff      // Maximum key code
 )
 
 type InputEvent struct {
@@ -63,29 +62,27 @@ func (d InputDevice) InputPath() string {
 }
 
 // IsKeyboard checks if the device is a keyboard by checking if it has keys A and Enter.
-func (d InputDevice) IsKeyboard() bool {
+func (d InputDevice) IsKeyboard() (bool, error) {
 	file, err := os.Open(d.InputPath())
 	if err != nil {
-		logger.Printf("Failed to open device %s: %v", d.InputPath(), err)
-		return false
+		return false, fmt.Errorf("failed to open device: %v", err)
 	}
 	defer file.Close()
 
-	var keyBits [256]byte
-	request := uintptr(EVIOCGBIT_KEY)
-	fmt.Printf("File descriptor: %d\n", file.Fd())
-	fmt.Printf("Request: %d\n", request)
-	fmt.Printf("KeyBits: %v\n", keyBits)
-	err = ioctl(file.Fd(), request, uintptr(unsafe.Pointer(&keyBits)))
-	if err != nil {
-		logger.Printf("Failed to get device capabilities: %v", err)
-		return false
+	// Check if the device has keys
+	var keyBitmask [((KEY_MAX + 7) / 8)]byte
+
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), EVIOCGBITKEY, uintptr(unsafe.Pointer(&keyBitmask)))
+	if errno != 0 {
+		return false, fmt.Errorf("ioctl error: %v", errno)
 	}
 
-	if keyBits[30/8]&(1<<(30%8)) != 0 && keyBits[28/8]&(1<<(28%8)) != 0 {
-		return true
+	// Check if common keyboard keys exist (KEY_A, KEY_B, etc.)
+	if keyBitmask[30/8]&(1<<(30%8)) != 0 { // KEY_A = 30
+		return true, nil
 	}
-	return false
+
+	return false, nil
 }
 
 // This function is used to detect input devices on the system.
