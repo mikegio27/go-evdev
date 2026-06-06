@@ -1,11 +1,26 @@
 # go-evdev
 
-`go-evdev` is a Go library for monitoring input devices on a Linux system. It provides functionality to monitor single or multiple input devices, read key events, and generate key maps from Linux header files.
-  
-**NOTE** You need to run these functions with additional priveleges to be able to access `/dev/input`
-## Installation
+`go-evdev` is a Go library for accessing the Linux [evdev](https://www.kernel.org/doc/html/latest/input/input.html)
+input subsystem. It opens `/dev/input/event*` devices directly and uses ioctls
+to query device identity and capabilities, then reads input events off the
+device — the standard, idiomatic way to talk to evdev.
 
-To install the library, use `go get`:
+It's intended as a foundation for input monitoring and remapping tools.
+
+**Note:** accessing `/dev/input` requires elevated privileges or membership in
+the `input` group.
+
+## Features
+
+- Open devices and read decoded `InputEvent`s (`Open`, `ReadOne`, `Read`).
+- Query identity: `Name`, `Phys`, `Uniq`, `ID` (bus/vendor/product/version), `DriverVersion`.
+- Query capabilities: `CapableTypes`, `CapableCodes`, `HasCode`, `IsKeyboard`.
+- Discover devices: `ListDevicePaths`, `ListDevices`, `ListKeyboards`.
+- Generated event-code constants (`EV_*`, `KEY_*`, `BTN_*`, `REL_*`, `ABS_*`, …)
+  with name lookups (`CodeName`, `EvCodeByName`, `EvTypeByName`) — **no kernel
+  headers needed** at build or run time.
+
+## Installation
 
 ```sh
 go get github.com/mikegio27/go-evdev
@@ -13,133 +28,94 @@ go get github.com/mikegio27/go-evdev
 
 ## Usage
 
-### Monitoring a Single Device
-
-To monitor a single device, use the `MonitorSingleDevice` function:
+### Monitor a single device
 
 ```go
 package main
 
 import (
-    "fmt"
-    "github.com/mikegio27/go-evdev"
+	"fmt"
+
+	evdev "github.com/mikegio27/go-evdev"
 )
 
 func main() {
-    devicePath := "/dev/input/event0" // or extract from InputDevice method
-    dataChan, cancel, err := evdev.MonitorSingleDevice(devicePath)
-    if err != nil {
-        fmt.Println("Error:", err)
-        return
-    }
-    defer cancel()
+	d, err := evdev.Open("/dev/input/event0")
+	if err != nil {
+		panic(err)
+	}
+	defer d.Close()
 
-    for event := range dataChan {
-        fmt.Println("Event:", event)
-    }
+	for {
+		ev, err := d.ReadOne()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(ev) // e.g. "EV_KEY KEY_A 1"
+	}
 }
 ```
 
-### Monitoring Keyboard Devices
+### List devices and inspect capabilities
 
 ```go
-import (
-    "fmt"
-    "github.com/mikegio27/go-evdev"
-)
-
-func main() {
-    devices, err := evdev.InputDevices()
-    if err != nil {
-        fmt.Println("Error getting input devices:", err)
-        return
-    }
-
-    keyboardDevices := []evdev.InputDevice{}
-    for _, device := range devices {
-        if device.IsKeyboard() {
-            keyboardDevices = append(keyboardDevices, device)
-        }
-    }
-
-    if len(keyboardDevices) == 0 {
-        fmt.Println("No keyboard devices found.")
-        return
-    }
-
-    dataChanMap, cancel, err := evdev.MonitorDevices(keyboardDevices)
-    if err != nil {
-        fmt.Println("Error monitoring devices:", err)
-        return
-    }
-    defer cancel()
-
-    for devicePath, dataChan := range dataChanMap {
-        go func(devicePath string, dataChan chan evdev.InputEvent) {
-            for event := range dataChan {
-                fmt.Printf("Device: %s, Event: %v\n", devicePath, event)
-            }
-        }(devicePath, dataChan)
-    }
-
-    // Keep the main function running
-    select {}
+devices, _ := evdev.ListDevices()
+for _, d := range devices {
+	defer d.Close()
+	name, _ := d.Name()
+	id, _ := d.ID()
+	kbd, _ := d.IsKeyboard()
+	fmt.Printf("%s: %q bus=%s keyboard=%v\n", d.Path(), name, id.BusType, kbd)
 }
 ```
 
-### Monitoring All Devices
-
-To monitor all input devices, use the `MonitorAllDevices` function:
+### Monitor all keyboards concurrently
 
 ```go
-package main
-
-import (
-    "fmt"
-    "github.com/mikegio27/go-evdev"
-)
-
-func main() {
-    dataChanMap, cancel, err := evdev.MonitorDevices(nil) // pass nil to monitor all devices
-    if err != nil {
-        fmt.Println("Error:", err)
-        return
-    }
-    defer cancel()
-
-    for devicePath, dataChan := range dataChanMap {
-        go func(devicePath string, dataChan chan evdev.InputEvent) {
-            for event := range dataChan {
-                fmt.Printf("Device: %s, Event: %v\n", devicePath, event)
-            }
-        }(devicePath, dataChan)
-    }
-
-    // Keep the main function running
-    select {}
+keyboards, _ := evdev.ListKeyboards()
+for _, d := range keyboards {
+	go func(d *evdev.Device) {
+		defer d.Close()
+		for {
+			ev, err := d.ReadOne()
+			if err != nil {
+				return
+			}
+			if ev.Type == evdev.EV_KEY {
+				fmt.Printf("%s: %s %d\n", d.Path(), ev.CodeName(), ev.Value)
+			}
+		}
+	}(d)
 }
+select {} // block forever
 ```
 
-### Generating a Key Map
-**NOTE** You need to have linux kernel headers installed to generate the keymap `sudo apt-get install linux-headers-$(uname -r)`  
-To generate a key map from the Linux `input-event-codes.h` file, use the `GenerateKeyMap` function:
+## Runnable examples
 
-```go
-package main
+- `examples/lsinput` — list devices with identity and supported event types.
+- `examples/monitor` — stream events from one device.
 
-import (
-    "fmt"
-    "github.com/mikegio27/go-evdev"
-)
-
-func main() {
-    keyMap := evdev.GenerateKeyMap()
-    for code, name := range keyMap {
-        fmt.Printf("Code: %d, Name: %s\n", code, name)
-    }
-}
+```sh
+sudo go run ./examples/lsinput
+sudo go run ./examples/monitor /dev/input/event0
 ```
+
+## Regenerating event codes
+
+`codes.go` is generated from the kernel headers and checked into the repo, so
+consumers never need them. To regenerate (maintainers only — requires the Linux
+headers installed, e.g. `linux-headers-$(uname -r)`):
+
+```sh
+go generate ./...
+```
+
+## Roadmap
+
+- Exclusive device grabbing (`EVIOCGRAB`).
+- Virtual device creation and event injection via `uinput`.
+- A higher-level remap helper that grabs a source device and re-emits events.
 
 ## License
 
-This library is licensed under the MIT License. See the LICENSE file for more details.
+MIT — see [LICENSE.md](LICENSE.md).
