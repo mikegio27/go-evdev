@@ -38,6 +38,9 @@ func ior(typ, nr, size uintptr) uintptr { return ioc(iocRead, typ, nr, size) }
 // iow builds a "write" ioctl request (data flows userspace -> kernel).
 func iow(typ, nr, size uintptr) uintptr { return ioc(iocWrite, typ, nr, size) }
 
+// io0 builds a no-argument ioctl request (the _IO macro: no data transfer).
+func io0(typ, nr uintptr) uintptr { return ioc(iocNone, typ, nr, 0) }
+
 // evdev request builders.
 
 func eviocgversion() uintptr { return ior(evdevType, 0x01, unsafe.Sizeof(int32(0))) }
@@ -68,4 +71,17 @@ func ioctl(fd, req uintptr, arg unsafe.Pointer) error {
 		return errno
 	}
 	return nil
+}
+
+// ioctlBuf issues an ioctl whose argument is a buffer the kernel fills (the
+// evdev string and bitmask requests), returning the number of bytes the kernel
+// reports writing. It centralizes the unsafe pointer conversion for these
+// variable-length requests, for which x/sys/unix offers no typed helper. buf
+// must be non-empty.
+func ioctlBuf(fd, req uintptr, buf []byte) (int, error) {
+	r, _, errno := unix.Syscall(unix.SYS_IOCTL, fd, req, uintptr(unsafe.Pointer(&buf[0])))
+	if errno != 0 {
+		return 0, errno
+	}
+	return int(r), nil
 }

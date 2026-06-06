@@ -17,6 +17,8 @@ the `input` group.
 - Query capabilities: `CapableTypes`, `CapableCodes`, `HasCode`, `CapableProps`, `IsKeyboard`.
 - Discover devices: `ListDevicePaths`, `ListDevices`, `ListKeyboards`.
 - Grab a device exclusively: `Grab`, `Ungrab` (`EVIOCGRAB`).
+- Create virtual devices and inject events via `uinput`: `CreateVirtualDevice`,
+  `WriteEvent`, `Sync`, plus `CapabilitiesOf` to mirror a real device.
 - Generated event-code constants (`EV_*`, `KEY_*`, `BTN_*`, `REL_*`, `ABS_*`, …)
   with name lookups (`CodeName`, `EvCodeByName`, `EvTypeByName`) — **no kernel
   headers needed** at build or run time.
@@ -96,12 +98,14 @@ select {} // block forever
 - `examples/lsinput` — list devices with identity and supported event types.
 - `examples/monitor` — stream events from one or more devices (no args = all
   readable devices; pass `-grab` to take them exclusively).
+- `examples/vkbd` — create a virtual keyboard via uinput and type a message.
 
 ```sh
 sudo go run ./examples/lsinput
 sudo go run ./examples/monitor                     # every device, labeled by node
 sudo go run ./examples/monitor /dev/input/event0
 sudo go run ./examples/monitor -grab /dev/input/event0
+sudo go run ./examples/vkbd                        # types into the focused field
 ```
 
 A single physical device often exposes several `event*` nodes (e.g. a gaming
@@ -121,7 +125,6 @@ go generate ./...
 
 ## Roadmap
 
-- Virtual device creation and event injection via `uinput`.
 - A higher-level remap helper that grabs a source device and re-emits events.
 
 ## License

@@ -50,6 +50,11 @@ func (d *Device) Fd() uintptr { return d.f.Fd() }
 // io.EOF when the device disappears.
 func (d *Device) ReadOne() (InputEvent, error) {
 	var ev InputEvent
+	// InputEvent's memory layout matches the kernel's struct input_event byte
+	// for byte (see event.go), so we read straight into it via an aliasing byte
+	// view. This is a deliberate zero-copy fast path for the hottest call in the
+	// library; the alternative (encoding/binary into a scratch buffer) would copy
+	// and allocate on every event.
 	buf := (*[sizeofInputEvent]byte)(unsafe.Pointer(&ev))[:]
 	if _, err := io.ReadFull(d.f, buf); err != nil {
 		return InputEvent{}, err
@@ -88,6 +93,12 @@ func (d *Device) ID() (InputID, error) {
 }
 
 // DriverVersion returns the evdev driver version (EVIOCGVERSION).
+//
+// The kernel writes a 32-bit int here, so we read into an explicit int32 rather
+// than using unix.IoctlGetInt (which targets a word-sized Go int). That keeps it
+// correct on big-endian architectures (e.g. s390x), where a 4-byte kernel write
+// into an 8-byte int would land in the wrong half — at the cost of one
+// unsafe.Pointer, routed through the shared ioctl helper.
 func (d *Device) DriverVersion() (int, error) {
 	var v int32
 	if err := ioctl(d.Fd(), eviocgversion(), unsafe.Pointer(&v)); err != nil {
@@ -155,12 +166,12 @@ func (d *Device) IsKeyboard() (bool, error) {
 func (d *Device) CapableProps() ([]InputProp, error) {
 	size := (int(INPUT_PROP_MAX) + 8) / 8
 	buf := make([]byte, size)
-	r, _, errno := unix.Syscall(unix.SYS_IOCTL, d.Fd(), eviocgprop(uintptr(size)), uintptr(unsafe.Pointer(&buf[0])))
-	if errno != 0 {
-		return nil, fmt.Errorf("evdev: EVIOCGPROP %s: %w", d.path, errno)
+	n, err := ioctlBuf(d.Fd(), eviocgprop(uintptr(size)), buf)
+	if err != nil {
+		return nil, fmt.Errorf("evdev: EVIOCGPROP %s: %w", d.path, err)
 	}
-	if int(r) < size {
-		buf = buf[:int(r)]
+	if n < size {
+		buf = buf[:n]
 	}
 	var out []InputProp
 	forEachSetBit(buf, func(code int) { out = append(out, InputProp(code)) })
@@ -173,8 +184,8 @@ func (d *Device) CapableProps() ([]InputProp, error) {
 // that re-emits a transformed event stream. The grab is released by Ungrab or
 // when the device is closed. Grabbing an already-grabbed device fails with EBUSY.
 func (d *Device) Grab() error {
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.Fd(), eviocgrab(), 1); errno != 0 {
-		return fmt.Errorf("evdev: EVIOCGRAB %s: %w", d.path, errno)
+	if err := unix.IoctlSetInt(int(d.Fd()), uint(eviocgrab()), 1); err != nil {
+		return fmt.Errorf("evdev: EVIOCGRAB %s: %w", d.path, err)
 	}
 	return nil
 }
@@ -182,8 +193,8 @@ func (d *Device) Grab() error {
 // Ungrab releases an exclusive grab previously taken with Grab. It is safe to
 // call on a device that is not grabbed.
 func (d *Device) Ungrab() error {
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.Fd(), eviocgrab(), 0); errno != 0 {
-		return fmt.Errorf("evdev: EVIOCGRAB(0) %s: %w", d.path, errno)
+	if err := unix.IoctlSetInt(int(d.Fd()), uint(eviocgrab()), 0); err != nil {
+		return fmt.Errorf("evdev: EVIOCGRAB(0) %s: %w", d.path, err)
 	}
 	return nil
 }
@@ -192,12 +203,12 @@ func (d *Device) Ungrab() error {
 // via EVIOCGBIT, returning only the bytes the kernel actually wrote.
 func (d *Device) queryBits(ev uintptr, size int) ([]byte, error) {
 	buf := make([]byte, size)
-	r, _, errno := unix.Syscall(unix.SYS_IOCTL, d.Fd(), eviocgbit(ev, uintptr(size)), uintptr(unsafe.Pointer(&buf[0])))
-	if errno != 0 {
-		return nil, fmt.Errorf("evdev: EVIOCGBIT(0x%x) %s: %w", ev, d.path, errno)
+	n, err := ioctlBuf(d.Fd(), eviocgbit(ev, uintptr(size)), buf)
+	if err != nil {
+		return nil, fmt.Errorf("evdev: EVIOCGBIT(0x%x) %s: %w", ev, d.path, err)
 	}
-	if int(r) < size {
-		return buf[:int(r)], nil
+	if n < size {
+		return buf[:n], nil
 	}
 	return buf, nil
 }
@@ -206,11 +217,10 @@ func (d *Device) queryBits(ev uintptr, size int) ([]byte, error) {
 // the trailing NUL. name is the request's symbolic name, used for error context.
 func (d *Device) ioctlString(name string, req func(uintptr) uintptr) (string, error) {
 	buf := make([]byte, 256)
-	r, _, errno := unix.Syscall(unix.SYS_IOCTL, d.Fd(), req(uintptr(len(buf))), uintptr(unsafe.Pointer(&buf[0])))
-	if errno != 0 {
-		return "", fmt.Errorf("evdev: %s %s: %w", name, d.path, errno)
+	n, err := ioctlBuf(d.Fd(), req(uintptr(len(buf))), buf)
+	if err != nil {
+		return "", fmt.Errorf("evdev: %s %s: %w", name, d.path, err)
 	}
-	n := int(r)
 	if n <= 0 {
 		return "", nil
 	}
