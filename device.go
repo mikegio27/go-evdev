@@ -148,6 +148,46 @@ func (d *Device) IsKeyboard() (bool, error) {
 	return true, nil
 }
 
+// CapableProps returns the device's properties (EVIOCGPROP) — hints about how
+// the device behaves, such as INPUT_PROP_POINTER for an indirect pointer (mouse)
+// or INPUT_PROP_DIRECT for a touchscreen. A node may report none; that does not
+// mean it is unused, only that the driver set no property bits.
+func (d *Device) CapableProps() ([]InputProp, error) {
+	size := (int(INPUT_PROP_MAX) + 8) / 8
+	buf := make([]byte, size)
+	r, _, errno := unix.Syscall(unix.SYS_IOCTL, d.Fd(), eviocgprop(uintptr(size)), uintptr(unsafe.Pointer(&buf[0])))
+	if errno != 0 {
+		return nil, fmt.Errorf("evdev: EVIOCGPROP %s: %w", d.path, errno)
+	}
+	if int(r) < size {
+		buf = buf[:int(r)]
+	}
+	var out []InputProp
+	forEachSetBit(buf, func(code int) { out = append(out, InputProp(code)) })
+	return out, nil
+}
+
+// Grab requests exclusive access to the device (EVIOCGRAB). While grabbed, the
+// device's events are delivered only to this open file and are withheld from all
+// other readers, including the rest of the system — essential for a remapper
+// that re-emits a transformed event stream. The grab is released by Ungrab or
+// when the device is closed. Grabbing an already-grabbed device fails with EBUSY.
+func (d *Device) Grab() error {
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.Fd(), eviocgrab(), 1); errno != 0 {
+		return fmt.Errorf("evdev: EVIOCGRAB %s: %w", d.path, errno)
+	}
+	return nil
+}
+
+// Ungrab releases an exclusive grab previously taken with Grab. It is safe to
+// call on a device that is not grabbed.
+func (d *Device) Ungrab() error {
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.Fd(), eviocgrab(), 0); errno != 0 {
+		return fmt.Errorf("evdev: EVIOCGRAB(0) %s: %w", d.path, errno)
+	}
+	return nil
+}
+
 // queryBits fetches a capability bitmask of size bytes for the given event type
 // via EVIOCGBIT, returning only the bytes the kernel actually wrote.
 func (d *Device) queryBits(ev uintptr, size int) ([]byte, error) {

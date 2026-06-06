@@ -268,6 +268,16 @@ func emit(defs []define) string {
 	}
 	p("}\n\n")
 
+	// propNames: InputProp -> "INPUT_PROP_POINTER"
+	p("var propNames = map[InputProp]string{\n")
+	for _, d := range props {
+		if isMaxOrCnt(d.name) {
+			continue
+		}
+		p("\t%s: %q,\n", d.name, d.name)
+	}
+	p("}\n\n")
+
 	return b.String()
 }
 

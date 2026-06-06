@@ -59,4 +59,11 @@ func TestStringers(t *testing.T) {
 	if got := BUS_USB.String(); got != "BUS_USB" {
 		t.Errorf("BUS_USB.String() = %q, want BUS_USB", got)
 	}
+	if got := INPUT_PROP_POINTER.String(); got != "INPUT_PROP_POINTER" {
+		t.Errorf("INPUT_PROP_POINTER.String() = %q, want INPUT_PROP_POINTER", got)
+	}
+	// Unknown property falls back to a typed numeric form.
+	if got := InputProp(0x10).String(); got != "INPUT_PROP_?(0x10)" {
+		t.Errorf("InputProp(0x10).String() = %q, want INPUT_PROP_?(0x10)", got)
+	}
 }

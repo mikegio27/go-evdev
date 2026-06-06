@@ -47,8 +47,8 @@ func eviocgname(length uintptr) uintptr { return ioc(iocRead, evdevType, 0x06, l
 func eviocgphys(length uintptr) uintptr { return ioc(iocRead, evdevType, 0x07, length) }
 func eviocguniq(length uintptr) uintptr { return ioc(iocRead, evdevType, 0x08, length) }
 
-// eviocgprop builds EVIOCGPROP, the device-properties bitmask request (reserved
-// for a future CapableProps accessor over INPUT_PROP_*).
+// eviocgprop builds EVIOCGPROP, the device-properties bitmask request (backs
+// Device.CapableProps over INPUT_PROP_*).
 func eviocgprop(length uintptr) uintptr { return ioc(iocRead, evdevType, 0x09, length) }
 
 // eviocgbit builds the request to fetch the capability bitmask for an event

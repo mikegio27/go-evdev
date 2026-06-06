@@ -19,6 +19,15 @@ func (b BusType) String() string {
 	return fmt.Sprintf("BUS_?(0x%x)", uint16(b))
 }
 
+// String returns the name for the device property (e.g. "INPUT_PROP_POINTER"),
+// or a numeric fallback like "INPUT_PROP_?(0x10)" for unknown properties.
+func (p InputProp) String() string {
+	if name, ok := propNames[p]; ok {
+		return name
+	}
+	return fmt.Sprintf("INPUT_PROP_?(0x%x)", uint16(p))
+}
+
 // CodeName returns the constant name for a code within the namespace of the
 // given event type (e.g. CodeName(EV_KEY, KEY_A) == "KEY_A"). Unknown codes
 // yield a numeric fallback like "KEY_?(0x1ff)".
