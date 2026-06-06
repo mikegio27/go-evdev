@@ -7,8 +7,11 @@ import (
 	"sort"
 )
 
-// devGlob matches the evdev character device nodes.
-const devGlob = "/dev/input/event*"
+// devDir holds the input device nodes; devGlob matches the evdev ones within it.
+const (
+	devDir  = "/dev/input"
+	devGlob = devDir + "/event*"
+)
 
 // ListDevicePaths returns the paths of all evdev device nodes, sorted.
 func ListDevicePaths() ([]string, error) {

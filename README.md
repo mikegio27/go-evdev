@@ -5,10 +5,13 @@ input subsystem. It opens `/dev/input/event*` devices directly and uses ioctls
 to query device identity and capabilities, then reads input events off the
 device — the standard, idiomatic way to talk to evdev.
 
-It's intended as a foundation for input monitoring and remapping tools.
+It's intended as a foundation for input monitoring and remapping tools: it can
+read and grab real devices, inject events through `uinput`, and watch for devices
+being hotplugged — everything a remapper needs.
 
 **Note:** accessing `/dev/input` requires elevated privileges or membership in
-the `input` group.
+the `input` group. Creating virtual devices additionally needs write access to
+`/dev/uinput` (root, or a seat user where logind grants it via `uaccess`).
 
 ## Features
 
@@ -19,6 +22,9 @@ the `input` group.
 - Grab a device exclusively: `Grab`, `Ungrab` (`EVIOCGRAB`).
 - Create virtual devices and inject events via `uinput`: `CreateVirtualDevice`,
   `WriteEvent`, `Sync`, plus `CapabilitiesOf` to mirror a real device.
+- Remap a device with one function: `Remapper` wraps the grab → transform →
+  inject loop; a `MapFunc` returns the events to emit (rebind, suppress, macro).
+- Watch for devices being plugged in and removed: `NewWatcher`, `DeviceEvent`.
 - Generated event-code constants (`EV_*`, `KEY_*`, `BTN_*`, `REL_*`, `ABS_*`, …)
   with name lookups (`CodeName`, `EvCodeByName`, `EvTypeByName`) — **no kernel
   headers needed** at build or run time.
@@ -93,12 +99,53 @@ for _, d := range keyboards {
 select {} // block forever
 ```
 
+### Remap a device
+
+`Remapper` grabs the source exclusively, mirrors its capabilities onto a virtual
+device, and runs the read → transform → inject loop. You just write the mapping:
+return one event (rebind), none (suppress), or many (a macro/combo).
+
+```go
+src, _ := evdev.Open("/dev/input/event0")
+defer src.Close()
+
+swap := func(ev evdev.InputEvent) []evdev.InputEvent {
+	if ev.Type == evdev.EV_KEY && ev.Code == evdev.KEY_CAPSLOCK {
+		ev.Code = evdev.KEY_ESC                  // Caps Lock -> Escape
+	}
+	return []evdev.InputEvent{ev}                // SYN frames pass through automatically
+}
+
+rm, _ := evdev.NewRemapper(src, swap)            // use WithExtraKeys(...) to emit keys
+defer rm.Close()                                 // the source lacks (e.g. mouse -> Ctrl+C)
+rm.Run()                                          // blocks until the source ends
+```
+
+### Watch for hotplugged devices
+
+```go
+w, _ := evdev.NewWatcher()                       // create before listing, to not miss races
+defer w.Close()
+
+for ev := range w.Events() {
+	switch ev.Action {
+	case evdev.DeviceAdded:
+		fmt.Println("plugged in:", ev.Path)      // e.g. a swapped mouse
+	case evdev.DeviceRemoved:
+		fmt.Println("removed:", ev.Path)
+	}
+}
+```
+
 ## Runnable examples
 
 - `examples/lsinput` — list devices with identity and supported event types.
 - `examples/monitor` — stream events from one or more devices (no args = all
   readable devices; pass `-grab` to take them exclusively).
 - `examples/vkbd` — create a virtual keyboard via uinput and type a message.
+- `examples/watch` — print devices as they are plugged in and removed.
+- `examples/remap` — grab a keyboard and re-emit it with Caps Lock ↔ Escape
+  swapped (the capstone read → grab → transform → inject loop).
 
 ```sh
 sudo go run ./examples/lsinput
@@ -106,6 +153,8 @@ sudo go run ./examples/monitor                     # every device, labeled by no
 sudo go run ./examples/monitor /dev/input/event0
 sudo go run ./examples/monitor -grab /dev/input/event0
 sudo go run ./examples/vkbd                        # types into the focused field
+sudo go run ./examples/watch                       # unplug/replug a device to see it
+sudo go run ./examples/remap /dev/input/event0     # grabs the device — see its warning
 ```
 
 A single physical device often exposes several `event*` nodes (e.g. a gaming
@@ -125,7 +174,11 @@ go generate ./...
 
 ## Roadmap
 
-- A higher-level remap helper that grabs a source device and re-emits events.
+The read/grab/inject/watch/remap building blocks are in place (see `Remapper`
+and `examples/remap`). Possible future addition:
+
+- `EV_ABS` output from virtual devices (touchpads, joysticks, tablets), via
+  `UI_ABS_SETUP`. Mice and keyboards (`EV_KEY`/`EV_REL`) are already covered.
 
 ## License
 
