@@ -172,14 +172,6 @@ headers installed, e.g. `linux-headers-$(uname -r)`):
 go generate ./...
 ```
 
-## Roadmap
-
-The read/grab/inject/watch/remap building blocks are in place (see `Remapper`
-and `examples/remap`). Possible future addition:
-
-- `EV_ABS` output from virtual devices (touchpads, joysticks, tablets), via
-  `UI_ABS_SETUP`. Mice and keyboards (`EV_KEY`/`EV_REL`) are already covered.
-
 ## License
 
 MIT — see [LICENSE.md](LICENSE.md).
