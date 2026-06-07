@@ -29,22 +29,49 @@ type Device struct {
 const capBufBytes = (int(KEY_MAX) + 8) / 8
 
 // Open opens the evdev device at path for reading.
+//
+// The device is opened non-blocking so its reads go through Go's runtime poller:
+// a ReadOne blocked waiting for input is then interrupted by Close (returning a
+// closed-file error), which lets a long-lived reader be cancelled cleanly. For
+// this to hold, ioctls must not be issued via Fd() (which reverts the file to
+// blocking mode and detaches it from the poller) — Device routes them through
+// control instead.
 func Open(path string) (*Device, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY, 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
 	return &Device{f: f, path: path}, nil
 }
 
-// Close closes the underlying device file.
+// Close closes the underlying device file. It also unblocks a concurrent ReadOne.
 func (d *Device) Close() error { return d.f.Close() }
 
 // Path returns the device path the Device was opened with.
 func (d *Device) Path() string { return d.path }
 
 // Fd returns the underlying file descriptor.
+//
+// Calling Fd reverts the file to blocking mode and removes it from the runtime
+// poller, so a concurrent ReadOne will no longer be interruptible by Close. It
+// is retained for callers that need the raw descriptor; internal ioctls use
+// control to avoid this.
 func (d *Device) Fd() uintptr { return d.f.Fd() }
+
+// control runs fn with the device's file descriptor without detaching the file
+// from the runtime poller (unlike Fd), so a concurrent ReadOne stays
+// interruptible by Close. The fd is valid only for the duration of fn.
+func (d *Device) control(fn func(fd uintptr) error) error {
+	rc, err := d.f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var fnErr error
+	if cErr := rc.Control(func(fd uintptr) { fnErr = fn(fd) }); cErr != nil {
+		return cErr
+	}
+	return fnErr
+}
 
 // ReadOne blocks until one event is available and returns it. It returns
 // io.EOF when the device disappears.
@@ -86,7 +113,7 @@ func (d *Device) Uniq() (string, error) { return d.ioctlString("EVIOCGUNIQ", evi
 // ID returns the device's bus/vendor/product/version identity (EVIOCGID).
 func (d *Device) ID() (InputID, error) {
 	var id InputID
-	if err := ioctl(d.Fd(), eviocgid(), unsafe.Pointer(&id)); err != nil {
+	if err := d.control(func(fd uintptr) error { return ioctl(fd, eviocgid(), unsafe.Pointer(&id)) }); err != nil {
 		return InputID{}, fmt.Errorf("evdev: EVIOCGID %s: %w", d.path, err)
 	}
 	return id, nil
@@ -101,7 +128,7 @@ func (d *Device) ID() (InputID, error) {
 // unsafe.Pointer, routed through the shared ioctl helper.
 func (d *Device) DriverVersion() (int, error) {
 	var v int32
-	if err := ioctl(d.Fd(), eviocgversion(), unsafe.Pointer(&v)); err != nil {
+	if err := d.control(func(fd uintptr) error { return ioctl(fd, eviocgversion(), unsafe.Pointer(&v)) }); err != nil {
 		return 0, fmt.Errorf("evdev: EVIOCGVERSION %s: %w", d.path, err)
 	}
 	return int(v), nil
@@ -166,7 +193,12 @@ func (d *Device) IsKeyboard() (bool, error) {
 func (d *Device) CapableProps() ([]InputProp, error) {
 	size := (int(INPUT_PROP_MAX) + 8) / 8
 	buf := make([]byte, size)
-	n, err := ioctlBuf(d.Fd(), eviocgprop(uintptr(size)), buf)
+	var n int
+	err := d.control(func(fd uintptr) error {
+		var e error
+		n, e = ioctlBuf(fd, eviocgprop(uintptr(size)), buf)
+		return e
+	})
 	if err != nil {
 		return nil, fmt.Errorf("evdev: EVIOCGPROP %s: %w", d.path, err)
 	}
@@ -184,7 +216,9 @@ func (d *Device) CapableProps() ([]InputProp, error) {
 // that re-emits a transformed event stream. The grab is released by Ungrab or
 // when the device is closed. Grabbing an already-grabbed device fails with EBUSY.
 func (d *Device) Grab() error {
-	if err := unix.IoctlSetInt(int(d.Fd()), uint(eviocgrab()), 1); err != nil {
+	if err := d.control(func(fd uintptr) error {
+		return unix.IoctlSetInt(int(fd), uint(eviocgrab()), 1)
+	}); err != nil {
 		return fmt.Errorf("evdev: EVIOCGRAB %s: %w", d.path, err)
 	}
 	return nil
@@ -193,7 +227,9 @@ func (d *Device) Grab() error {
 // Ungrab releases an exclusive grab previously taken with Grab. It is safe to
 // call on a device that is not grabbed.
 func (d *Device) Ungrab() error {
-	if err := unix.IoctlSetInt(int(d.Fd()), uint(eviocgrab()), 0); err != nil {
+	if err := d.control(func(fd uintptr) error {
+		return unix.IoctlSetInt(int(fd), uint(eviocgrab()), 0)
+	}); err != nil {
 		return fmt.Errorf("evdev: EVIOCGRAB(0) %s: %w", d.path, err)
 	}
 	return nil
@@ -203,7 +239,12 @@ func (d *Device) Ungrab() error {
 // via EVIOCGBIT, returning only the bytes the kernel actually wrote.
 func (d *Device) queryBits(ev uintptr, size int) ([]byte, error) {
 	buf := make([]byte, size)
-	n, err := ioctlBuf(d.Fd(), eviocgbit(ev, uintptr(size)), buf)
+	var n int
+	err := d.control(func(fd uintptr) error {
+		var e error
+		n, e = ioctlBuf(fd, eviocgbit(ev, uintptr(size)), buf)
+		return e
+	})
 	if err != nil {
 		return nil, fmt.Errorf("evdev: EVIOCGBIT(0x%x) %s: %w", ev, d.path, err)
 	}
@@ -217,7 +258,12 @@ func (d *Device) queryBits(ev uintptr, size int) ([]byte, error) {
 // the trailing NUL. name is the request's symbolic name, used for error context.
 func (d *Device) ioctlString(name string, req func(uintptr) uintptr) (string, error) {
 	buf := make([]byte, 256)
-	n, err := ioctlBuf(d.Fd(), req(uintptr(len(buf))), buf)
+	var n int
+	err := d.control(func(fd uintptr) error {
+		var e error
+		n, e = ioctlBuf(fd, req(uintptr(len(buf))), buf)
+		return e
+	})
 	if err != nil {
 		return "", fmt.Errorf("evdev: %s %s: %w", name, d.path, err)
 	}
