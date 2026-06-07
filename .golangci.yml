@@ -1,0 +1,14 @@
+version: "2"
+
+linters:
+  exclusions:
+    rules:
+      # Cleanup/teardown is deliberately fire-and-forget: ignoring errors from
+      # Close/Ungrab (often closing an fd we're already abandoning on an error
+      # path) and the watcher's self-pipe wakeup write is intentional.
+      - linters: [errcheck]
+        text: "Error return value of `(.*\\.Close|.*\\.Ungrab|unix\\.Write)` is not checked"
+      # Tests, runnable examples, and the code generator are not library API;
+      # fire-and-forget I/O there is fine.
+      - linters: [errcheck]
+        path: (_test\.go|examples/|internal/gen/)
