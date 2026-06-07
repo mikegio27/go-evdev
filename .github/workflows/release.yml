@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # push the tag and create the GitHub Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # semrel needs full history + tags
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Gate: never tag a broken main.
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+      - uses: go-semantic-release/action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          changelog-file: CHANGELOG.md
+          changelog-generator-opt: "emojis=true"
+          # allow-initial-development-versions left disabled (default) so the
+          # first release promotes v0.0.13 -> v1.0.0; thereafter normal semver.
