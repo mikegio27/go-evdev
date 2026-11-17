@@ -2,4 +2,4 @@ module github.com/mikegio27/go-evdev
 
 go 1.26.0
 
-require golang.org/x/sys v0.45.0
+require golang.org/x/sys v0.50.0
